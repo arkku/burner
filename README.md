@@ -25,7 +25,7 @@ To support the high programming/erase/id voltage on pins 1 (`Vpp/A15`),
 22 (`!OE`), and 24 (`A9`) of the EEPROM, the following circuit is used
 (three copies):
 
-                                 +--------+--> Vpp
+                                 +--------+--> Vpp supply
                                  |        |
                                [22K]   +--+
                                  |   |/e

@@ -14,7 +14,7 @@
  * 22 (`!OE`), and 24 (`A9`) of the EEPROM, the following circuit is used
  * (three copies):
  *
- *                              +--------+--> Vpp
+ *                              +--------+--> Vpp supply
  *                              |        |
  *                            [22K]   +--+
  *                              |   |/e
@@ -32,7 +32,7 @@
  *
  *  In the above schematic, `HV Ctl` is the output on the AVR that controls
  *  whether the programming voltage `Vpp` (e.g., 12V) is applied. Meanwhile
- *  `LV Ctl` is the regular logic level output (`!OE` on the AVR, `A9' and
+ *  `LV Ctl` is the regular logic level output (`!OE` on the AVR, `A9` and
  *  `A15` on the second 74HC595 as `QB` and `QH`, respectively). The
  *  Schottky diode protects the logic level output from `Vpp`, and the 22K
  *  resistor pulls the EEPROM pin low when neither `HV Ctl` or `LV Ctl` is
