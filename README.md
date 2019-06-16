@@ -115,7 +115,7 @@ recognized:
 
 * `I` – **Identify**: read the two-byte identifier from the chip. This
   applies higher voltage to A9, so beware using on random chips.
-* `C` – List known *chip types**. Note that not every variant
+* `C` – List known **chip types**. Note that not every variant
   is listed separately, try using the closest match.
 * `C name` – Choose **chip type** (e.g., `C 27SF512`).
 * `R` – **Read** the entire EEPROM in Intel HEX (IHEX) format.
