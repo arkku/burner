@@ -1,0 +1,3 @@
+[submodule "ihex"]
+	path = ihex
+	url = https://github.com/arkku/ihex
