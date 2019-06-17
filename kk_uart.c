@@ -1,5 +1,5 @@
 /**
- * kk_uart.c: An UART (serial port) library for AVR microcontrollers.
+ * kk_uart.c: A UART (serial port) library for AVR microcontrollers.
  * Provides an stdio-compatible `FILE *` handle to the UART, with
  * interrupt-driven and buffered receiving (but unbuffered transmitting).
  *

@@ -16,6 +16,8 @@ find this (or parts of it) useful in some way.
 
 ## Hardware
 
+There is a rudimentary [schematic](burner_schematic.pdf) available.
+
 In addition to the ATmega microcontroller and the EEPROM, this uses two
 chained 74HC595 shift registers for the address bus, controlled via SPI.
 The 16 outputs of the shift registers are all connected to the address
@@ -45,34 +47,35 @@ whether the programming voltage `Vpp` (e.g., 12V) is applied. Meanwhile
 `LV Ctl` is the regular logic level output (`!OE` on the AVR, `A9` and
 `A15` on the second 74HC595 as `QB` and `QH`, respectively). The
 Schottky diode protects the logic level output from `Vpp`, and the 22K
-resistor pulls the EEPROM pin low when neither `HV Ctl` or `LV Ctl` is
-on. The resistor values are largery arbitrary, I just used the same
-22K for simplicity.
+pull-down resistor pulls the EEPROM pin low when both `HV Ctl` and
+`LV Ctl` are low.
 
 The voltage `Vpp` is the same for every pin and is not controlled –
-personally I just used 12V input, which is then regulated to 5V. Many
-EEPROMs can be programmed with 12V but some require a higher voltage
-(such as 14V) for erasing. The way to do this is to just supply 14V
-as `Vpp`, erase the chip, and then change the `Vpp` supply to 12V
-for writing (e.g., for the W27C512 EEPROM).
+personally I just used 12V input, which is then regulated to 5V using
+a 7805. Many EEPROMs can be programmed with 12V but some require a
+higher voltage (such as 14V) for erasing. The way to do this is to
+supply 14V as `Vpp`, erase the chip, and then change the `Vpp`
+supply to 12V for writing (e.g., for the W27C512 EEPROM). (The
+erasing and programming need not be done during the same session,
+you can write anytime to an erased chip.)
 
 The pin assignments on the microcontroller can be seen in `burner.c`,
 near the top of the file. For quick reference, they are:
 
-* `PC0`–`PC5` - EEPROM data `D0`–`D5`
+* `PC0`–`PC5` – EEPROM data `D0`–`D5`
 * `PD6`–`PD7` – EEPROM data `D6`–`D7`
 * `PB0` – EEPROM `!OE` `LV Ctl` (logic level) output enable
 * `PB1` – EEPROM `!CE` chip enable
 * `PD2` – `A9` `HV Ctl` identify/erase voltage control
 * `PD3` – `!OE` `HV Ctl` programming voltage control
-* `PD2` – `A15` `HV Ctl` programming voltage control
+* `PD4` – `A15` `HV Ctl` programming voltage control
 * `PB3` – low 74HC595 `SI` (high 74HC595 `SI` is chained from the
   `QH'` output of the low 74HC595)
 * `PB5` – both 74HC595 `SCK`
 * `PD5` – both 74HC595 `RCK` latch
 * `PB2` – both 74HC595 `!SCLR` (optional, can also just tie high)
 * `PD0` – UART `RX`
-* `PD1` - UART `TX`
+* `PD1` – UART `TX`
 * `PB4` – ISP header MISO (don't use for other purposes)
 
 I used a 14.318 MHz crystal for the microcontroller since I happened
@@ -82,13 +85,17 @@ argument to `make`.
 
 In addition to the mentioned components, you need some kind of serial
 port chip or cable that uses TTL levels. Personally I used an FTDI chip
-connected to USB and the `RX` and `TX` pins.
+for an USB serial port connected to the `RX` and `TX` pins.
 
-I also built mine with an active-low LED attached to the `!CE` pin of
-the EEPROM and an ISP header. You probably want to socket the
-microcontroller anyway in case something goes wrong. And obviously the
-EEPROM needs to be socketed to be useful (a ZIF socket is preferable,
-but I used a high quality milled socket instead, since I had it around).
+I also built mine with a LED connected to the `!CE` pin of the EEPROM
+(it will blink during read and write), as well as an ISP header for
+simple programming without having to use a bootloader (there is plenty
+of space left on the microcontroller for one, though, e.g., you can
+probably build this on an Arduino if you so wish).  You probably want
+to socket the microcontroller anyway in case something goes wrong.
+And obviously the EEPROM needs to be socketed to be useful (a ZIF
+socket is preferable, but I used a high quality milled socket
+instead, since I had it around).
 
 ## Software
 
@@ -152,7 +159,8 @@ supported for testing purposes:
 To read a pin-compatible EEPROM, choose the nearest matching chip type
 and use the `R $start $end` to read the desired address range. Don't read
 beyond the end of the chip, since there may be other functionality
-associated with the `A14` and/or `A15` address lines.
+associated with the `A14` and/or `A15` address lines. (If the chip type
+is selected correctly, reading won't go past the end.)
 
 During reading, you may use software flow control (XON/XOFF) to pause/
 resume the output. Sending a single exclamation mark `!` aborts the read.
@@ -177,22 +185,27 @@ computer.
 Since each IHEX line specifies an address, it is possible to write
 selectively to any part of the EEPROM – simply send only those lines of
 IHEX that you wish to write. Retrying the same line is also as simple as
-sending it again.
+sending it again. The burner prevents you from exceeding the size of the
+selected chip type, i.e., addresses will _not_ wrap around at the end.
+It is even possible to write the same EEPROM in parts, as long as you
+avoid writing different data to already-written areas (writing the same
+data is harmless). The `bin2ihex` tool of my `kk_ihex` library can
+easily convert binary files to IHEX starting from an arbitrary address.
 
 Write mode may be exited by sending either the IHEX end of file line or a
 single exclamation mark `!`.
 
 Note that writing the EEPROM may be slower than the speed of the serial
-connection, and the microcontroller's receive buffer is limited. This
-means that the sender (you or your terminal) must throttle the speed at
-which data is sent. Software flow control (XON/XOFF) may be used for this,
-or you may simply send one line, wait for the response, and send
+connection, and the microcontroller's UART receive buffer is very limited.
+This means that the sender (you or your terminal) must throttle the speed
+at which data is sent. Software flow control (XON/XOFF) may be used for
+this, or you may simply send one line, wait for the response, and send
 another. The latter approach also has the benefit that you can observe
-errors as they happen.
+errors as they happen, and is preferable.
 
-### Terminal.rb
+### terminal.rb
 
-A simple "terminal" program written in Ruby for Linux and other *nix
+A simple "terminal" program written in Ruby for Linux and other \*nix
 systems is provided. It passes input and output directly to the burner,
 but supports two additional commands to make reading and writing simpler:
 
