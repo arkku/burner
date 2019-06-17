@@ -643,10 +643,10 @@ eeprom_read_ihex (address_t address, const address_t end_address) {
         eeprom_deselect();
         ihex_write_byte(&ihex, byte);
     } while (address <= end_address && address > 0);
-    uart_puts_P(PSTR("! Read done\n"));
 abort_reading:
     end_read();
     ihex_end_write(&ihex);
+    uart_puts_P(PSTR("! Read end\n"));
 }
 
 static bool
@@ -924,7 +924,7 @@ main (void) {
             eeprom_select();
             // fallthrough
         case 'D': { // Read one data byte at the current address
-            uint8_t byte = (c == 'D') ? eeprom_input() : eeprom_read_byte();
+            uint8_t byte = (c == 'D') ? eeprom_read_byte() : eeprom_input();
             (void) fprintf_P(uart, PSTR("! Read $%02X (%u)\n"), byte, byte);
             break;
         }

@@ -58,13 +58,14 @@ class Burner
       end
     end
     @mutex.synchronize do
-      if result =~ /Error:/ || result =~ /^! Write end/ || result == /^[?] IHEX/
+      if result =~ /Error:/ || result =~ /^! (Write|Read) end/
         if @ihex_source
-          if @previous_ihex && (result =~ /Checksum/ || result =~ /IHEX/)
+          if @previous_ihex && (result =~ /checksum/ || result =~ /IHEX/)
+            # Error in the IHEX data
             log "! Resend: #{result}"
             @serial.write("\r\n")
             send(@previous_ihex)
-            xoff
+            xoff # Prevent another new line from being sent until next XON
           else
             @ihex_source.close
             @ihex_source = nil
@@ -181,7 +182,7 @@ end
 port = ARGV.first.to_s
 port = '/dev/ttyUSB0' if port.empty?
 baud = ARGV.last.to_i
-baud = 38400 if baud <= 0
+baud = 57600 if baud <= 0
 
 burner = Burner.new(serial_device: port, baud: baud)
 
