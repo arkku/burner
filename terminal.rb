@@ -23,7 +23,7 @@ class Burner
   attr_reader :serial
   attr_reader :xon
 
-  def initialize(serial_device: '/dev/ttyUSB0', baud: 38400)
+  def initialize(serial_device: '/dev/ttyUSB0', baud: 57600)
     @serial = SerialPort.new(serial_device, baud, 8, 1, SerialPort::NONE)
     @xon = true
     @serial.autoclose = true

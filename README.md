@@ -87,7 +87,7 @@ In addition to the mentioned components, you need some kind of serial
 port chip or cable that uses TTL levels. Personally I used an FTDI chip
 for an USB serial port connected to the `RX` and `TX` pins.
 
-I also built mine with a LED connected to the `!CE` pin of the EEPROM
+I also built mine with an LED connected to the `!CE` pin of the EEPROM
 (it will blink during read and write), as well as an ISP header for
 simple programming without having to use a bootloader (there is plenty
 of space left on the microcontroller for one, though, e.g., you can
@@ -117,7 +117,7 @@ Dragon in ISP mode, the microcontroller can be programmed with just
 
 Use of the programmer can be done via a terminal program, it just needs
 to be set to the correct baud rate (`BAUD` defined at compile-time, e.g.,
-38400) and 8N1. The following commands (each followed by CRLF) are
+57600) and 8N1. The following commands (each followed by CRLF) are
 recognized:
 
 * `I` – **Identify**: read the two-byte identifier from the chip. This
@@ -223,7 +223,7 @@ command `E` to erase it before burning (if needed).
 
 The usage is simply:
 
-    ./terminal.rb /dev/ttyUSB0 38400
+    ./terminal.rb /dev/ttyUSB0 57600
 
 The two arguments specify the serial device connected to the burner and
 its baud rate, respectively.

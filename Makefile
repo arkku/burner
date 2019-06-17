@@ -5,7 +5,7 @@
 
 MCU ?= atmega328p
 F_CPU ?= 14318318UL
-BAUD ?= 38400UL
+BAUD ?= 57600UL
 
 LFUSE ?= FF
 HFUSE ?= DF
