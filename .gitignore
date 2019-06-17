@@ -3,3 +3,4 @@
 *.elf
 *.a
 *~
+local.mk

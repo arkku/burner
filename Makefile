@@ -1,5 +1,8 @@
 # Makefile for the EEPROM burner.
 # Copyright (c) 2019 Kimmo Kulovesi, https://arkku.com/
+###############################################################################
+# Put your local settings in "local.mk", it is ignored by Git.
+-include local.mk
 ### AVR MCU ###################################################################
 # Only tested with ATmega328P.
 
@@ -21,7 +24,6 @@ BURNER ?= dragon_isp
 #PORT ?= /dev/ttyUSB0
 # Burner speed
 #BPS ?= 115200
-
 ###############################################################################
 
 CC=avr-gcc
