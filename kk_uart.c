@@ -17,6 +17,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 
 static char buffer[KK_UART_RECEIVE_BUFFER_SIZE];
 
@@ -53,7 +54,6 @@ static bool previous_was_converted_cr = false;
 #else
 #define IS_END_OF_LINE(b)   ((b) == '\r' || (b) == '\n')
 #define consume_newline_after_cr(b) do { if ((b) == '\r') { consume_newline(); } } while (0)
-
 /// Consume a single LF. Used to get rid of the LF of a CRLF pair after
 /// the CR has already been consumed. This only tries for a limited time
 /// to avoid blocking indefinitely in case the LF is lost or not sent.
@@ -69,7 +69,7 @@ consume_newline (void) {
         }
     } while (c == EOF && --attempts);
 }
-#endif
+#endif /* KK_UART_CONVERT_CRLF_IN_TO_LF == 0 */
 
 uint8_t
 uart_bytes_available (void) {
@@ -120,6 +120,15 @@ get_next_from_buffer:
 }
 
 int
+uart_getc_wait (void) {
+    int c;
+    do {
+        c = uart_getc();
+    } while (c == EOF); // TODO: Return EOF on break
+    return c;
+}
+
+int
 uart_peekc (void) {
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
     if (buffer_read_pos == buffer_write_pos) {
@@ -142,11 +151,11 @@ uart_peekc (void) {
 }
 
 int
-uart_getc_wait (void) {
+uart_peekc_wait (void) {
     int c;
     do {
-        c = uart_getc();
-    } while (c == EOF);
+        c = uart_peekc();
+    } while (c == EOF); // TODO: Return EOF on break (change callers here to handle it)
     return c;
 }
 
@@ -162,9 +171,18 @@ uart_putc (const char c) {
 
 void
 uart_puts (const char * restrict str) {
-    while (*str) {
-        uart_putc(*str);
-        ++str;
+    char c;
+    while ((c = *str++)) {
+        uart_putc(c);
+    }
+}
+
+/// Write the string `pstr` from program space (`PSTR`) to the UART.
+void
+uart_puts_P (const char * restrict pstr) {
+    char c;
+    while ((c = pgm_read_byte(pstr++))) {
+        uart_putc(c);
     }
 }
 
@@ -173,7 +191,10 @@ uart_consume_line (void) {
     int result = 1;
     for (;;) {
         int c = uart_getc_wait();
-        switch (c) {
+        if (c == EOF) {
+            return EOF;
+        }
+        switch ((char) c) {
         case ' ':
             break;
 #if KK_UART_CONVERT_CRLF_IN_TO_LF == 0
@@ -185,8 +206,6 @@ uart_consume_line (void) {
             return result;
         case '\t':
             break;
-        case EOF:
-            return EOF;
         default:
             if (((uint8_t) c) >= 0x20) {
                 // There were non-space, non-control characters
@@ -202,10 +221,8 @@ uart_consume_space_and_newlines (void) {
     int result = 0;
 
     do {
-        int c;
-        do {
-            c = uart_peekc();
-        } while (c == EOF);
+        char c = uart_peekc_wait();
+
         if (!(c == ' ' || IS_END_OF_LINE(c) || c == '\t')) {
             break;
         }
@@ -261,16 +278,13 @@ uart_getline (int bufsize, char buf[static bufsize]) {
 int
 uart_getword (int bufsize, char buf[static bufsize]) {
     char * const end_of_buf = buf + bufsize;
-    int c;
     int count = 0;
 
     // Skip leading space
     (void) uart_consume_space();
 
-    do {
-        do {
-            c = uart_peekc();
-        } while (c == EOF);
+    while (buf != end_of_buf) {
+        char c = uart_peekc_wait();
 
         if (c == ' ' || IS_END_OF_LINE(c) || c == '\t') {
             break;
@@ -285,9 +299,12 @@ uart_getword (int bufsize, char buf[static bufsize]) {
             *buf++ = c;
         }
         (void) uart_getc();
-    } while (buf != end_of_buf);
+    }
 
-    *buf = '\0';
+    if (bufsize) {
+        *buf = '\0';
+    }
+
     return count;
 }
 
@@ -304,13 +321,10 @@ uart_getlong (int_fast8_t base, int_fast8_t *success) {
     // Skip leading space
     (void) uart_consume_space();
 
-    int c;
     unsigned long result = 0;
     bool digits_read = false;
     for (;;) {
-        do {
-            c = uart_peekc();
-        } while (c == EOF);
+        char c = uart_peekc_wait();
 
         if (c >= '0' && c <= '9') {
             c -= '0';

@@ -112,6 +112,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include <util/delay.h>
 
 #include "kk_uart.h"
@@ -345,11 +346,11 @@ select_chip_by_name (const char *name) {
     for (int i = 0; i < num_chips; ++i) {
         if (streqi(name, chips[i].name)) {
             chip = &chips[i];
-            (void) fprintf(uart, "! %s: %s\n", "Chip", chip->name);
+            (void) fprintf_P(uart, PSTR("! Chip: %s\n"), chip->name);
             return true;
         }
     }
-    (void) fprintf(uart, "%s: %s%s\n", "Error: ", "Unknown ", name);
+    (void) fprintf_P(uart, PSTR("Error: Unknown chip: %s\n"), name);
     return false;
 }
 
@@ -395,7 +396,7 @@ static void
 list_known_chips (void) {
     const int num_chips = (sizeof chips) / (sizeof chips[0]);
     for (int i = 0; i < num_chips; ++i) {
-        (void) fprintf(uart, "! %-10s $%04X%s\n", chips[i].name, chips[i].max_address, (chip == &chips[i]) ? " *" : "");
+        (void) fprintf_P(uart, PSTR("! %-10s $%04X%s\n"), chips[i].name, chips[i].max_address, (chip == &chips[i]) ? " *" : "");
     }
 }
 
@@ -492,7 +493,7 @@ eeprom_verify_erased (void) {
         eeprom_deselect();
         if (verification != 0xFFU) {
             --address;
-            (void) fprintf(uart, "%s%s $%04lX\n", "Error: ", "Verify", (unsigned long) address);
+            (void) fprintf_P(uart, PSTR("Error: Verify $%04lX not empty\n"), (unsigned long) address);
             return false;
         }
     } while (address <= chip->max_address && address > 0);
@@ -526,7 +527,7 @@ eeprom_erase (void) {
     delay_ms(100);
 
     if (!eeprom_verify_erased()) {
-        (void) fprintf(uart, "%s%s\n", "Error: ", "Erase");
+        uart_puts_P(PSTR("Error: Erase failed\n"));
         return false;
     }
     return true;
@@ -630,7 +631,7 @@ eeprom_read_ihex (address_t address, const address_t end_address) {
         do {
             status = uart_check_flow_control();
             if (status == FLOW_BREAK) {
-                (void) fprintf(uart, "! %s %s\n", "Read", "abort");
+                uart_puts_P(PSTR("! Read aborted\n"));
                 goto abort_reading;
             }
         } while (status == FLOW_PAUSE);
@@ -642,7 +643,7 @@ eeprom_read_ihex (address_t address, const address_t end_address) {
         eeprom_deselect();
         ihex_write_byte(&ihex, byte);
     } while (address <= end_address && address > 0);
-    (void) fprintf(uart, "! %s\n", "Read");
+    uart_puts_P(PSTR("! Read done\n"));
 abort_reading:
     end_read();
     ihex_end_write(&ihex);
@@ -691,7 +692,7 @@ eeprom_write (address_t address, const uint_fast8_t length, const uint8_t data[s
         if (verification == byte || !retries_remaining) {
             if (verification != byte) {
                 if (success) {
-                    (void) fprintf(uart, "%s%s %lX\n", "Error: ", "Write", (unsigned long) address);
+                    (void) fprintf_P(uart, PSTR("Error: Write $%04lX failed\n"), (unsigned long) address);
                     success = false;
                 }
             }
@@ -755,7 +756,7 @@ start_ihex_input (void) {
     in_ihex_input = true;
     ihex_init(&ihex);
     begin_write();
-    (void) fprintf(uart, "! %s %s\n", "Write", "IHEX");
+    uart_puts_P(PSTR("! Write IHEX\n"));
     uart_xon();
 }
 
@@ -765,13 +766,12 @@ end_ihex_input (void) {
     end_write();
     uart_xon();
 
-    (void) fprintf(uart, "! %s %s\n", "Write", "end");
     if (write_error_count) {
-        (void) fprintf(uart, "%s%s %s x%u ($%04lX)\n",
-                       "Error: ", "Write", "fail", (unsigned) write_error_count,
-                       (unsigned long) lowest_failed_address);
+        (void) fprintf_P(uart, PSTR("! Write had %u errors (first at $%04lX)\n"),
+                         (unsigned) write_error_count, (unsigned long) lowest_failed_address);
     }
     in_ihex_input = false;
+    uart_puts_P(PSTR("! Write end\n"));
 
     // Consume any further IHEX lines still in buffer
     do {
@@ -795,7 +795,7 @@ main (void) {
             status = uart_check_flow_control();
             if (status == FLOW_BREAK) {
                 if (in_ihex_input) {
-                    (void) fprintf(uart, "! %s %s\n", "Write", "abort");
+                    uart_puts_P(PSTR("! Write aborted\n"));
                     end_ihex_input();
                 } else {
                     // Break outside of IHEX is a NOP
@@ -828,15 +828,16 @@ main (void) {
             // All the commands are a single character.
             if (c > 0) {
             unknown_command:
-                (void) fprintf(uart, "? %s\"%s\"\n", "Unknown ", buffer);
+                (void) fprintf_P(uart, PSTR("? Unknown command: \"%s\"\n"), buffer);
             } else {
-                (void) uart_puts("?\n");
+                uart_puts("?\n");
             }
             (void) uart_consume_line();
             continue;
         }
 
-        switch (toupper(buffer[0])) {
+        c = toupper(buffer[0]);
+        switch ((char) c) {
         case 'C': { // Chip type
             if (uart_getword(sizeof buffer, buffer) > 0) {
                 if (select_chip_by_name(buffer)) {
@@ -854,13 +855,13 @@ main (void) {
             address = uart_getlong(0, &success);
             if (!success) {
                 if (!uart_consume_line()) {
-                    (void) uart_puts("? R $start $end\n");
+                    uart_puts_P(PSTR("? R $start $end\n"));
                     break;
                 }
                 address = 0;
             } else {
                 if (address > chip->max_address) {
-                    (void) fprintf(uart, "%s%s $%04lX > $%04lX\n", "Error: ", "Address", address, (unsigned long) chip->max_address);
+                    (void) fprintf_P(uart, PSTR("Error: Address $%04lX > $%04lX\n"), address, (unsigned long) chip->max_address);
                     break;
                 }
 
@@ -868,7 +869,7 @@ main (void) {
                 end_address = uart_getlong(0, &success);
                 if (!success) {
                     if (!uart_consume_line()) {
-                        (void) uart_puts("? R $start $end\n");
+                        uart_puts_P(PSTR("? R $start $end\n"));
                         break;
                     }
                 }
@@ -877,16 +878,16 @@ main (void) {
                 end_address = chip->max_address;
             }
             if (address > end_address) {
-                (void) fprintf(uart, "%s%s $%04lX > $%04lX\n", "Error: ", "Address", address, end_address);
+                    (void) fprintf_P(uart, PSTR("Error: Address $%04lX > $%04lX\n"), address, (unsigned long) end_address);
                 break;
             }
-            (void) fprintf(uart, "! %s %s\n", "Read", "IHEX");
+            (void) fprintf(uart, PSTR("! Read IHEX $%04lX - $%04lX\n"), (unsigned long) address, (unsigned long) end_address);
             eeprom_read_ihex(address, end_address);
             break;
         }
         case 'E': { // Erase
             if (eeprom_erase()) {
-                (void) fprintf(uart, "! %s\n", "Erase");
+                uart_puts_P(PSTR("! Erase ok\n"));
             }
             break;
         }
@@ -896,13 +897,13 @@ main (void) {
         }
         case 'I': { // Identify
             uint16_t identifier = eeprom_read_id();
-            (void) fprintf(uart, "! %s: %04X\n", "Id", (unsigned) identifier);
+            (void) fprintf_P(uart, PSTR("! Id: 0x%04X\n"), (unsigned) identifier);
             (void) select_chip_by_id(identifier);
             break;
         }
         case 'V': { // Verify that the EEPROM is erased
             if (eeprom_verify_erased()) {
-                (void) fprintf(uart, "! %s\n", "Verify");
+                uart_puts_P(PSTR("! Verify ok\n"));
             }
             break;
         }
@@ -912,22 +913,19 @@ main (void) {
             if (!success) {
                 goto unknown_command;
             }
-            (void) fprintf(uart, "! $%lX (%ld)\n", address & 0xFFFF, address);
+            (void) fprintf_P(uart, PSTR("! Address $%04lX (%ld)\n"), address & 0xFFFF, address);
             set_address(address);
             break;
         }
-        case 'T': { // Test mode (leave EEPROM selected in read mode)
+        case 'T': // Test mode (leave EEPROM selected in read mode)
             eeprom_deselect();
             disable_Vpp();
             begin_read();
             eeprom_select();
-            uint8_t byte = eeprom_input();
-            (void) fprintf(uart, "! $%02X (%u)\n", byte, byte);
-            break;
-        }
+            // fallthrough
         case 'D': { // Read one data byte at the current address
-            uint8_t byte = eeprom_read_byte();
-            (void) fprintf(uart, "! $%02X (%u)\n", byte, byte);
+            uint8_t byte = (c == 'D') ? eeprom_input() : eeprom_read_byte();
+            (void) fprintf_P(uart, PSTR("! Read $%02X (%u)\n"), byte, byte);
             break;
         }
         case 'O': { // Output data (for testing, EEPROM is not written)
@@ -940,29 +938,29 @@ main (void) {
             disable_Vpp();
             begin_write();
             eeprom_output(data);
-            (void) fprintf(uart, "! $%02X (%u)\n", (unsigned) data, (unsigned) data);
+            (void) fprintf_P(uart, PSTR("! Out $%02X (%u)\n"), (unsigned) data, (unsigned) data);
             break;
         }
         case 'M': { // Memory status (of the microcontroller RAM)
             extern int __heap_start, *__brkval;
             int free_bytes;
             free_bytes = ((int) &free_bytes) - (__brkval ? (int) __brkval : (int) &__heap_start);
-            (void) fprintf(uart, "! %d %s %s\n", free_bytes, "bytes", "RAM");
+            (void) fprintf_P(uart, PSTR("! %d bytes RAM free\n"), free_bytes);
             break;
         }
         case '!': // NOP
             break;
         case 'H': // fallthrough
         case '?': // Help
-            (void) fprintf(uart, "? %c: %s\n", 'C', "Chip");
-            (void) fprintf(uart, "? %c: %s\n", 'I', "Id");
-            (void) fprintf(uart, "? %c: %s\n", 'E', "Erase");
-            (void) fprintf(uart, "? %c: %s\n", 'V', "Verify");
-            (void) fprintf(uart, "? %c: %s\n", 'R', "Read");
-            (void) uart_puts("? R $start $end\n");
-            (void) fprintf(uart, "? %c: %s\n", 'W', "Write");
-            (void) fprintf(uart, "?    %s %s\n", "Write", "IHEX");
-            (void) fprintf(uart, "? !: %s/%s %s\n", "Read", "Write", "abort");
+            (void) fprintf_P(uart, PSTR("? %c: %s\n"), 'C', "Chip");
+            (void) fprintf_P(uart, PSTR("? %c: %s\n"), 'I', "Id");
+            (void) fprintf_P(uart, PSTR("? %c: %s\n"), 'E', "Erase");
+            (void) fprintf_P(uart, PSTR("? %c: %s\n"), 'V', "Verify");
+            (void) fprintf_P(uart, PSTR("? %c: %s\n"), 'R', "Read");
+            uart_puts_P(PSTR("? R $start $end\n"));
+            (void) fprintf_P(uart, PSTR("? %c: %s\n"), 'W', "Write");
+            uart_puts_P(PSTR("?    Send IHEX after 'W' to write\n"));
+            uart_puts_P(PSTR("? !: Abort read or write\n"));
             break;
         default:
             goto unknown_command;
@@ -973,7 +971,7 @@ main (void) {
 void
 ihex_flush_buffer (struct ihex_state *ihex, char *ascii, char *eptr) {
     *eptr = '\0';
-    (void) uart_puts(ascii);
+    uart_puts(ascii);
 }
 
 ihex_bool_t
@@ -991,22 +989,25 @@ ihex_data_read (struct ihex_state *ihex,
 
     unsigned long address = (unsigned long) IHEX_LINEAR_ADDRESS(ihex);
     if (checksum_error) {
-        (void) fprintf(uart, "%s%s %s $%04lX\n", "Error: ", "Invalid", "checksum", address);
+        (void) fprintf_P(uart, PSTR("Error: Invalid checksum at $%04lX\n"), address);
         goto write_error;
     } else if (address > chip->max_address) {
-        (void) fprintf(uart, "%s%s $%04lX > $%04lX\n", "Error: ", "Address", address, (unsigned long) chip->max_address);
+        (void) fprintf_P(uart, PSTR("Error: Address $%04lX > $%04lX\n"),
+                         address, (unsigned long) chip->max_address);
         end_ihex_input();
     } else {
         uart_xoff();
 
         uint_fast8_t length = ihex->length;
         if ((address + (length - 1)) > chip->max_address) {
-            (void) fprintf(uart, "%s%s $%04lX > $%04lX\n", "Error: ", "Address", address + (length - 1), (unsigned long) chip->max_address);
+            (void) fprintf_P(uart, PSTR("Error: Address $%04lX > $%04lX\n"),
+                             address + (length - 1), (unsigned long) chip->max_address);
             length = (chip->max_address - address) + 1;
         }
 
         if (eeprom_write((address_t) address, length, ihex->data)) {
-            (void) fprintf(uart, "! $%04lX - $%04lX\n", address, address + (length - 1));
+            (void) fprintf_P(uart, PSTR("! $%04lX - $%04lX\n"),
+                             address, address + (length - 1));
         } else {
         write_error:
             if (!write_error_count || address < lowest_failed_address) {
@@ -1014,7 +1015,8 @@ ihex_data_read (struct ihex_state *ihex,
             }
             ++write_error_count;
             if (write_error_count >= 64) {
-                (void) fprintf(uart, "! %s %s\n", "Write", "abort");
+                uart_puts_P(PSTR("! Excess errors\n"));
+                uart_puts_P(PSTR("! Write aborted\n"));
                 end_ihex_input();
             }
         }

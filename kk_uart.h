@@ -83,15 +83,21 @@ int uart_getc_wait(void);
 /// may be fewer bytes actually readable.
 uint8_t uart_bytes_available(void);
 
-/// Peek at the next character from the UART. Returs `EOF` is none available.
+/// Peek at the next character from the UART. Returns `EOF` is none available.
 /// For a non-`EOF` result, calling `uart_getc()` immediately returns the same.
 int uart_peekc(void);
+
+/// Wait until a character is available on the UART and return it.
+int uart_peekc_wait(void);
 
 /// Write the character `c` to the UART.
 void uart_putc(const char c);
 
 /// Write the string `str` to the UART.
 void uart_puts(const char *str);
+
+/// Write the string `pstr` from program space (`PSTR`) to the UART.
+void uart_puts_P(const char *pstr);
 
 /// Get at most one less than `bufsize` non-control characters up to the next
 /// end of line from the UART into `buf`. The end of line is not stored in
