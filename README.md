@@ -16,7 +16,9 @@ find this (or parts of it) useful in some way.
 
 ## Hardware
 
-There is a rudimentary [schematic](burner_schematic.pdf) available.
+There is now a [schematic](burner_schematic.pdf) available, but the
+following is an informal description of the circuit (before I figured
+out how to draw schematics on a computer).
 
 In addition to the ATmega microcontroller and the EEPROM, this uses two
 chained 74HC595 shift registers for the address bus, controlled via SPI.
