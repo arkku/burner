@@ -215,7 +215,7 @@ open("/dev/tty", "r+") do |tty|
       next
     when 'q', 'quit'
       $keep_running = false
-    when 'r', 'read'
+    when 'read'
       if fields.count == 2
         burner.read_to_file(fields[1])
       elsif fields.count == 4
@@ -226,7 +226,7 @@ open("/dev/tty", "r+") do |tty|
       else
         burner.log "! Usage: read <filename.hex> [start] [end]"
       end
-    when 'burn'
+    when 'burn', 'write'
       if fields.count == 2
         burner.burn_from_ihex_file(fields[1])
       else
