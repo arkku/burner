@@ -151,10 +151,11 @@ class Burner
     @mutex.synchronize do
       @ihex_source.close if @ihex_source
       @previous_ihex = nil
-      file = File.open(filename, 'rt')
-      @ihex_source = file
-      if file.nil?
-        log "! Error: #{filename}"
+      begin
+        file = File.open(filename, 'rt')
+        @ihex_source = file
+      rescue Exception => e
+        log "! Error: #{filename}: #{e}"
         return
       end
       send('W')
