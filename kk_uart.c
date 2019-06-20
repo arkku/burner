@@ -19,14 +19,14 @@
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
 
-static char buffer[KK_UART_RECEIVE_BUFFER_SIZE];
+static char rx_buffer[KK_UART_RECEIVE_BUFFER_SIZE];
 
 typedef uint8_t buffer_index_t;
 
-static volatile buffer_index_t buffer_write_pos = 0;
-static volatile buffer_index_t buffer_read_pos = 0;
+static volatile buffer_index_t rx_buffer_write = 0;
+static volatile buffer_index_t rx_buffer_read = 0;
 
-#define buffer_size ((unsigned int) (sizeof buffer))
+#define buffer_size ((unsigned int) (sizeof rx_buffer))
 
 #define uart_has_data           ((UCSR0A & _BV(RXC0)) != 0)
 #define uart_byte               UDR0
@@ -73,10 +73,10 @@ consume_newline (void) {
 
 uint8_t
 uart_bytes_available (void) {
-    uint8_t unread_count = MODULO_BUFFER_SIZE(buffer_size + buffer_write_pos - buffer_read_pos);
+    uint8_t unread_count = MODULO_BUFFER_SIZE(buffer_size + rx_buffer_write - rx_buffer_read);
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
     if (unread_count && previous_was_converted_cr) {
-        unread_count -= (buffer[buffer_read_pos] == '\n') ? 1 : 0;
+        unread_count -= (rx_buffer[rx_buffer_read] == '\n') ? 1 : 0;
     }
 #endif
     return unread_count;
@@ -84,8 +84,8 @@ uart_bytes_available (void) {
 
 void
 uart_flush_unread (void) {
-    buffer_write_pos = 0;
-    buffer_read_pos = 0;
+    rx_buffer_write = 0;
+    rx_buffer_read = 0;
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
     previous_was_converted_cr = false;
 #endif
@@ -97,11 +97,11 @@ uart_getc (void) {
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
 get_next_from_buffer:
 #endif
-    if (buffer_read_pos == buffer_write_pos) {
+    if (rx_buffer_read == rx_buffer_write) {
         return EOF;
     }
-    c = buffer[buffer_read_pos];
-    buffer_read_pos = MODULO_BUFFER_SIZE(buffer_read_pos + 1);
+    c = rx_buffer[rx_buffer_read];
+    rx_buffer_read = MODULO_BUFFER_SIZE(rx_buffer_read + 1);
 
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
     if (previous_was_converted_cr) {
@@ -131,22 +131,22 @@ uart_getc_wait (void) {
 int
 uart_peekc (void) {
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
-    if (buffer_read_pos == buffer_write_pos) {
+    if (rx_buffer_read == rx_buffer_write) {
         return EOF;
     }
-    char c = buffer[buffer_read_pos];
+    char c = rx_buffer[rx_buffer_read];
     if (previous_was_converted_cr) {
         if (c == '\n') {
-            buffer_index_t next_read_pos = buffer_read_pos + 1;
-            if (next_read_pos == buffer_write_pos) {
+            buffer_index_t next_read_pos = rx_buffer_read + 1;
+            if (next_read_pos == rx_buffer_write) {
                 return EOF;
             }
-            c = buffer[next_read_pos];
+            c = rx_buffer[next_read_pos];
         }
     }
     return (c != '\r') ? c : '\n';
 #else
-    return (buffer_read_pos == buffer_write_pos) ? EOF : buffer[buffer_read_pos];
+    return (rx_buffer_read == rx_buffer_write) ? EOF : rx_buffer[rx_buffer_read];
 #endif
 }
 
@@ -413,10 +413,10 @@ ISR(USART0_RX_vect)
         c = uart_byte;
     } else {
         c = uart_byte;
-        const buffer_index_t next_pos = MODULO_BUFFER_SIZE(buffer_write_pos + 1);
-        if (next_pos != buffer_read_pos) {
-            buffer[buffer_write_pos] = c;
-            buffer_write_pos = next_pos;
+        const buffer_index_t next_pos = MODULO_BUFFER_SIZE(rx_buffer_write + 1);
+        if (next_pos != rx_buffer_read) {
+            rx_buffer[rx_buffer_write] = c;
+            rx_buffer_write = next_pos;
         }
     }
 }
