@@ -160,6 +160,11 @@ void uart_flush_unread(void);
 /// Disable the UART.
 void uart_disable(void);
 
+/// The status flags when the previous receive error was encountered.
+/// This is not automatically cleared, but will be overwritten by new
+/// errors asynchronously.
+extern volatile uint8_t uart_last_rx_error;
+
 #ifdef __cplusplus
 }
 #endif

@@ -40,11 +40,11 @@ static volatile buffer_index_t rx_buffer_read = 0;
 #define UART_PORT               PORTD
 
 #if KK_UART_RECEIVE_BUFFER_SIZE == 256
-#define MODULO_BUFFER_SIZE(x)   ((uint8_t) (x))
+#define modulo_buffer_size(x)   ((uint8_t) (x))
 #elif KK_UART_RECEIVE_BUFFER_SIZE > 256
 #error KK_UART_RECEIVE_BUFFER_SIZE too large (max. 256)!
 #else
-#define MODULO_BUFFER_SIZE(x)   ((buffer_index_t) ((x) % buffer_size))
+#define modulo_buffer_size(x)   ((buffer_index_t) ((x) % buffer_size))
 #endif
 
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
@@ -73,7 +73,7 @@ consume_newline (void) {
 
 uint8_t
 uart_bytes_available (void) {
-    uint8_t unread_count = MODULO_BUFFER_SIZE(buffer_size + rx_buffer_write - rx_buffer_read);
+    uint8_t unread_count = modulo_buffer_size(buffer_size + rx_buffer_write - rx_buffer_read);
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
     if (unread_count && previous_was_converted_cr) {
         unread_count -= (rx_buffer[rx_buffer_read] == '\n') ? 1 : 0;
@@ -94,14 +94,16 @@ uart_flush_unread (void) {
 int
 uart_getc (void) {
     char c;
+    buffer_index_t pos;
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
 get_next_from_buffer:
 #endif
-    if (rx_buffer_read == rx_buffer_write) {
+    pos = rx_buffer_read;
+    if (pos == rx_buffer_write) {
         return EOF;
     }
-    c = rx_buffer[rx_buffer_read];
-    rx_buffer_read = MODULO_BUFFER_SIZE(rx_buffer_read + 1);
+    c = rx_buffer[pos];
+    rx_buffer_read = modulo_buffer_size(pos + 1);
 
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
     if (previous_was_converted_cr) {
@@ -131,17 +133,18 @@ uart_getc_wait (void) {
 int
 uart_peekc (void) {
 #if KK_UART_CONVERT_CRLF_IN_TO_LF != 0
-    if (rx_buffer_read == rx_buffer_write) {
+    buffer_index_t pos = rx_buffer_read;
+    if (pos == rx_buffer_write) {
         return EOF;
     }
-    char c = rx_buffer[rx_buffer_read];
+    char c = rx_buffer[pos];
     if (previous_was_converted_cr) {
         if (c == '\n') {
-            buffer_index_t next_read_pos = rx_buffer_read + 1;
-            if (next_read_pos == rx_buffer_write) {
+            pos = modulo_buffer_size(pos + 1);
+            if (pos == rx_buffer_write) {
                 return EOF;
             }
-            c = rx_buffer[next_read_pos];
+            c = rx_buffer[pos];
         }
     }
     return (c != '\r') ? c : '\n';
@@ -250,10 +253,15 @@ uart_consume_space (void) {
 
 int
 uart_getline (int bufsize, char buf[static bufsize]) {
-    char * const end_of_buf = buf + bufsize;
     int c;
     int count = 0;
-    do {
+
+    if (bufsize <= 0) {
+        return -1;
+    }
+    --bufsize;
+
+    while (count < bufsize) {
         c = uart_getc_wait();
         if (IS_END_OF_LINE(c) || c == EOF) {
             consume_newline_after_cr(c);
@@ -262,48 +270,47 @@ uart_getline (int bufsize, char buf[static bufsize]) {
         if (c == '\b' && count) {
             // Handle backspace inside the line
             --count;
-            --buf;
         } else if (c >= 0x20 || c == '\t') {
             // Only take non-control characters
-            *buf++ = c;
-            ++count;
+            buf[count++] = c;
         }
-    } while (buf != end_of_buf);
+    }
 
-    *buf = '\0';
+    buf[count] = '\0';
 
     return count;
 }
 
 int
 uart_getword (int bufsize, char buf[static bufsize]) {
-    char * const end_of_buf = buf + bufsize;
     int count = 0;
 
-    // Skip leading space
-    (void) uart_consume_space();
+    if (bufsize <= 0) {
+        return -1;
+    }
+    --bufsize;
 
-    while (buf != end_of_buf) {
-        char c = uart_peekc_wait();
+    while (count < bufsize) {
+        char c = uart_peekc_wait(); // TODO: Return on break?
 
-        if (c == ' ' || IS_END_OF_LINE(c) || c == '\t') {
+        if (c == ' ' || c == '\t') {
+            if (count) {
+                break;
+            }
+            // Skip leading space
+        } else if (IS_END_OF_LINE(c)) {
             break;
-        }
-        if (c == '\b' && count) {
+        } else if (c == '\b' && count) {
             // Handle backspace inside the word
             --count;
-            --buf;
         } else if (c >= 0x20) {
             // Don't record control characters
-            ++count;
-            *buf++ = c;
+            buf[count++] = c;
         }
         (void) uart_getc();
     }
 
-    if (bufsize) {
-        *buf = '\0';
-    }
+    buf[count] = '\0';
 
     return count;
 }
@@ -396,6 +403,8 @@ uart_getlong (int_fast8_t base, int_fast8_t *success) {
     return negative ? -((long) result) : (long) result;
 }
 
+volatile uint8_t uart_last_rx_error = 0;
+
 /// The serial port UART device.
 static FILE uart_fdev = FDEV_SETUP_STREAM((uart_putc), (uart_getc_wait), _FDEV_SETUP_RW);
 
@@ -407,16 +416,20 @@ ISR(USART_RX_vect)
 ISR(USART0_RX_vect)
 #endif
 {
-    char c;
-    if (UCSR0A & (_BV(FE0) | _BV(UPE0))) {
-        // Error, only consume byte
-        c = uart_byte;
+    uint8_t status = UCSR0A;
+    char c = uart_byte;
+    if (status & (_BV(FE0) | _BV(UPE0))) {
+        uart_last_rx_error = status;
     } else {
-        c = uart_byte;
-        const buffer_index_t next_pos = MODULO_BUFFER_SIZE(rx_buffer_write + 1);
+        const buffer_index_t next_pos = modulo_buffer_size(rx_buffer_write + 1);
         if (next_pos != rx_buffer_read) {
             rx_buffer[rx_buffer_write] = c;
             rx_buffer_write = next_pos;
+        } else {
+            status |= _BV(DOR0);
+        }
+        if (status & _BV(DOR0)) {
+            uart_last_rx_error = status;
         }
     }
 }
