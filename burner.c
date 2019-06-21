@@ -180,7 +180,7 @@ typedef uint16_t address_t;
 static struct ihex_state ihex;
 
 #ifdef IHEX_EXTERNAL_WRITE_BUFFER
-#define BUFFER_LENGTH (IHEX_WRITE_BUFFER_LENGTH < 128 ? 128 : IHEX_WRITE_BUFFER_LENGTH)
+#define BUFFER_LENGTH ((IHEX_WRITE_BUFFER_LENGTH <= 128) ? 128 : IHEX_WRITE_BUFFER_LENGTH)
 #else
 #define BUFFER_LENGTH 128
 #endif
@@ -188,6 +188,8 @@ static struct ihex_state ihex;
 static char buffer[BUFFER_LENGTH];
 
 #ifdef IHEX_EXTERNAL_WRITE_BUFFER
+// We can share the ihex write buffer with our input buffer, since we will
+// never read input into `buffer` while outputting IHEX.
 char *ihex_write_buffer = buffer;
 #endif
 
@@ -628,7 +630,6 @@ static void
 eeprom_read_ihex (address_t address, const address_t end_address) {
     ihex_init(&ihex);
     ihex_write_at_address(&ihex, address);
-    ihex_set_output_line_length(&ihex, 32);
 
     eeprom_deselect();
     begin_read();
@@ -745,8 +746,6 @@ setup (void) {
     SPI_PORT &= ~(SCK_PIN | MOSI_PIN);
     SPCR = _BV(SPE) | _BV(MSTR);
 
-    ihex_init(&ihex);
-
     // Enable interrupts
     sei();
 }
@@ -761,6 +760,7 @@ start_ihex_input (void) {
     lowest_failed_address = 0xFFFFU;
     in_ihex_input = true;
     ihex_init(&ihex);
+    ihex_begin_read(&ihex);
     begin_write();
     uart_puts_P(PSTR("! Write IHEX\n"));
     uart_xon();
@@ -768,14 +768,15 @@ start_ihex_input (void) {
 
 static void
 end_ihex_input (void) {
-    if (in_ihex_input) {
-        in_ihex_input = false;
-        ihex_end_read(&ihex);
-        uart_puts_P(PSTR("! Write end\n"));
-        if (write_error_count) {
-            (void) fprintf_P(uart, PSTR("! Write had %u errors (first at $%04lX)\n"),
-                             (unsigned) write_error_count, (unsigned long) lowest_failed_address);
-        }
+    if (!in_ihex_input) {
+        return;
+    }
+
+    in_ihex_input = false;
+    ihex_end_read(&ihex);
+    if (write_error_count) {
+        (void) fprintf_P(uart, PSTR("! Write had %u errors (first at $%04lX)\n"),
+                         (unsigned) write_error_count, (unsigned long) lowest_failed_address);
     }
 
     disable_Vpp();
@@ -789,6 +790,8 @@ end_ihex_input (void) {
             (void) uart_consume_line();
         }
     } while (uart_peekc() == ':');
+
+    uart_puts_P(PSTR("! Write end\n"));
 }
 
 int
@@ -825,14 +828,14 @@ main (void) {
         
         if (in_ihex_input) {
             // Write mode: input is IHEX
-            int count = uart_getline(sizeof buffer, buffer);
+            int count = uart_getline(BUFFER_LENGTH, buffer);
             if (count > 0) {
                 ihex_read_bytes(&ihex, buffer, count);
             }
             continue;
         }
 
-        c = uart_getword(sizeof buffer, buffer);
+        c = uart_getword(BUFFER_LENGTH, buffer);
         if (c != 1) {
             // All the commands are a single character.
             if (c > 0) {
@@ -848,7 +851,7 @@ main (void) {
         c = toupper(buffer[0]);
         switch ((char) c) {
         case 'C': { // Chip type
-            if (uart_getword(sizeof buffer, buffer) > 0) {
+            if (uart_getword(BUFFER_LENGTH, buffer) > 0) {
                 if (select_chip_by_name(buffer)) {
                     break;
                 }
@@ -890,7 +893,7 @@ main (void) {
                     (void) fprintf_P(uart, PSTR("Error: Address $%04lX > $%04lX\n"), (unsigned long) address, (unsigned long) end_address);
                 break;
             }
-            (void) fprintf(uart, PSTR("! Read IHEX $%04lX - $%04lX\n"), (unsigned long) address, (unsigned long) end_address);
+            (void) fprintf_P(uart, PSTR("! Read IHEX $%04lX - $%04lX\n"), (unsigned long) address, (unsigned long) end_address);
             if (in_ihex_input) {
                 end_ihex_input();
             }
@@ -982,9 +985,10 @@ main (void) {
 
 void
 ihex_flush_buffer (struct ihex_state *ihex, char *ascii, char *eptr) {
-    *eptr = '\0';
-    uart_puts(ascii);
-    *ascii = '\0';
+    while (ascii != eptr) {
+        uart_putc(*ascii);
+        ++ascii;
+    }
 }
 
 ihex_bool_t
@@ -1007,7 +1011,7 @@ ihex_data_read (struct ihex_state *ihex,
     } else if (address > chip->max_address) {
         (void) fprintf_P(uart, PSTR("Error: Address $%04lX > $%04lX\n"),
                          address, (unsigned long) chip->max_address);
-        end_ihex_input();
+        goto write_error;
     } else {
         uart_xoff();
 
