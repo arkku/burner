@@ -1,18 +1,57 @@
 # KKBurner
 
-An EEPROM burner for AVR ATmega328p and similar microcontrollers.
-Mainly intended for 27SF512 and 27SF256, but may work with many other
-similar chips, such as: 27C512, 27C256, W27C512, 27C128, 27C64, and
-possibly even 28C256. Probably reads any pin-compatible EEPROMs as
-well, but burning them may or may not work.
+An EEPROM programmer and PROM reader using an AVR ATmega328p (or similar)
+microcontroller. I have successfully replaced the ROMs in various Commodore
+C64 and C128D computers and the Commodore 1571 floppy drive with new
+EEPROMs burned using this device, as well as read the original ROMs of
+these and other vintage computers.
 
 This is a random DIY project for my very limited personal use, and
 might not even be worth the time to build (given that you can buy
 superior devices quite cheaply). However, it was an interesting
 hobby project, and it works for me. Maybe someone else will also
-find this (or parts of it) useful in some way.
+find this (or parts of it) useful in some way. It can probably be
+built on an Arduino, although care needs to be taken with pin
+assignments and having the correct crystal frequency set. See the
+`Makefile` for build options.
 
 ~ [Kimmo Kulovesi](https://arkku.com/), 2019-06-16
+
+## Compatible EPROMs
+
+The following EPROMs have been tested to be writeable with this device:
+
+* 27SF512
+* W27C512
+* AT28C256
+* AT29C256
+* M27C256 (UV-erasable)
+
+It is reasonable to assume that other 28-pin variants of the same will also
+work, i.e., these are untested but extremely likely to be compatible:
+
+* 27SF256
+* 27C512
+* 27C256
+* 27C128
+* 27C64
+
+_Reading_ (but not writing) has also been tested on a number of vintage
+28-pin ROMs from old computers and their peripherals.
+
+Note that the 29C family of EEPROMs requires writing entires 64-byte pages
+at once, but writing takes place after each complete Intel HEX line has been
+transmitted, and IHEX typically has 32 bytes per line. This means that
+every page has to be written twice, since the remaining data is read from the
+EEPROM in order to preserve it. This can be avoided by converting the binary
+to IHEX using 64 bytes per line, e.g., as follows with `bin2ihex`:
+
+    ihex/bin2ihex -b 64 <rom.bin >rom.hex
+
+Note that the executable `bin2ihex` is not compiled by the EEPROM programmer's
+`Makefile` (since it runs on the host computer), but you can simply type `make`
+inside the `ihex` submodule's directory to build the `bin2ihex` and `ihex2bin`
+utilities.
 
 ## Hardware
 
@@ -80,10 +119,16 @@ near the top of the file. For quick reference, they are:
 * `PD1` – UART `TX`
 * `PB4` – ISP header MISO (don't use for other purposes)
 
-I used a 14.318 MHz crystal for the microcontroller since I happened
-to have it around, but 14.746 MHz would be better for the UART. You
-can also use 16 MHz and 20 MHz. In any case, specify `F_CPU` as an
-argument to `make`.
+Various crystal oscillator frequencies are supported, but it is
+crucial to set the matching `F_CPU` in the arguments to `make`,
+and to select a baud rate that is reliable with that frequency.
+For example, a 16 MHz crystal at 19200 baud would be:
+
+    make F_CPU=16000000UL BAUD=19200
+
+This (16 MHz, 19200 baud) is also the default since it has proven the
+highest reliable speed with that crystal and cheap USB to serial
+adapters. Using a 14.746 MHz crystal allows higher baud rates.
 
 In addition to the mentioned components, you need some kind of serial
 port chip or cable that uses TTL levels. Personally I used an FTDI chip
@@ -113,13 +158,19 @@ Otherwise everything can be built to `burner.hex` by just running
 `make`. See the `Makefile` for configurable options (such as the crystal
 frequency, `F_CPU`, and UART baud rate, `BAUD`). If you use the AVR
 Dragon in ISP mode, the microcontroller can be programmed with just
-`make burn` and its fuses set with `make fuses`.
+`make burn` and its fuses set with `make fuses`. You may be able to
+upload to an Arduino-compatible bootloader with something like:
+
+    make F_CPU=16000000 BAUD=115200
+    make upload BURNER=arduino PORT=/dev/ttyUSB0 BPS=115200
+
+However, anything other than AVR Dragon is untested.
 
 ## Usage
 
 Use of the programmer can be done via a terminal program, it just needs
 to be set to the correct baud rate (`BAUD` defined at compile-time, e.g.,
-57600) and 8N1. The following commands (each followed by CRLF) are
+19200) and 8N1. The following commands (each followed by CRLF) are
 recognized:
 
 * `I` – **Identify**: read the two-byte identifier from the chip. This
@@ -127,7 +178,7 @@ recognized:
 * `C` – List known **chip types**. Note that not every variant
   is listed separately, try using the closest match.
 * `C name` – Choose **chip type** (e.g., `C 27SF512`).
-* `R` – **Read** the entire EEPROM in Intel HEX (IHEX) format.
+* `R` – **Read** the entire ROM in Intel HEX (IHEX) format.
 * `R $start $end` – **Read** from the address `start` to the address
   `end` (inclusive). The addresses may be given in hexadecimal with `$`
   or `0x` prefix (e.g., `R $0000 $1FFF`), or decimal (no prefix).
@@ -137,11 +188,25 @@ recognized:
 * `V` – **Verify** that the chip is empty (all bytes read `$FF`). This
   can be used on a fresh chip to check whether there is a need to
   erase it.
+* `S` - Determine the **size** of data on the ROM. Displays the address
+  range that contains unique data - any further data present is just
+  cyclically repeating. This can be used to determine the size of an
+  unknown ROM chip, although it may be incorrect in case the same data
+  is written multiple times.
+* `N` – Count the **number** of ones and zeroes in each bit position,
+  as well as the distribution of distinct nybbles. This was inspired by
+  the idea of observing the erase progress of an UV-erasable EPROM, but
+  may also be used to detect faults in specific bit positions, as well
+  as find out if there is a lot of blank space or a test pattern
+  on the ROM.
 * `W` – **Write** enable. In write mode, further input is expected
   in the Intel Hex (IHEX) format. Each complete line of IHEX causes
   that line to be written to the EEPROM immediately. Write mode is
   exited when the IHEX end of file is sent. The burner may
-  also exit write mode in case there are several errors.
+  also exit write mode in case there are several errors. If this is a
+  28C device, write protection is disabled automatically.
+* `P` – **Protect** the device by enabling software write protection.
+  This is only supported on the 28C family of EEPROMs.
 * `!` – **Breaks** out of write and read modes, otherwise does nothing.
 * `?` – **Help**  – print the list of commands.
 
@@ -151,14 +216,14 @@ supported for testing purposes:
 * `A $address` – Set the **address** bus to `$address` (e.g. `A $7FFF`).
 * `D` – Read the **data** bus (a single byte).
 * `O $byte` – **Output** `$byte` on the data bus (but do not burn it).
-* `T` – **Test** mode: Select the EEPROM and read the data bus, and
-  leave the EEPROM selected with output enabled (e.g., to probe with
+* `T` – **Test** mode: Select the ROM and read the data bus, and
+  leave the ROM selected with output enabled (e.g., to probe with
   a multimeter). The command `A` can be used while staying in this mode.
 * `M` – Output the amount free **memory** (RAM) on the microcontroller.
 
 ## Reading
 
-To read a pin-compatible EEPROM, choose the nearest matching chip type
+To read a pin-compatible ROM, choose the nearest matching chip type
 and use the `R $start $end` to read the desired address range. Don't read
 beyond the end of the chip, since there may be other functionality
 associated with the `A14` and/or `A15` address lines. (If the chip type
@@ -169,13 +234,13 @@ resume the output. Sending a single exclamation mark `!` aborts the read.
 
 ## Burning
 
-Before you can write ("burn") an EEPROM, it must first be erased. Erasing
-can bo done with the `E` command, but the chip type must first be
-correctly selected and the appropriate erase voltage must be present as
-the `Vpp` (some chips need 14V to erase while using 12V for identifying
-and programming, check the datasheet). New EEPROMs may already be blank,
-which can be tested by issuing the `V` (verify) command. A blank EEPROM
-reads as all bits set (`$FF`).
+Before you can write ("burn") a PROM, it must first be erased. Erasing
+compatible EEPROM can bo done with the `E` command, but the chip type
+must first be correctly selected and the appropriate erase voltage must
+be present as the `Vpp` (some chips need 14V to erase while using 12V
+for identifying and programming, check the datasheet). New PROMs may
+already be blank, which can be tested by issuing the `V` (verify)
+command. A blank EEPROM reads as all bits set (`$FF`).
 
 The write mode is entered by issuing the `W` command. In write mode, any
 valid Intel HEX line received is immediately written to the EEPROM and
@@ -185,11 +250,11 @@ reading back the entire EEPROM and comparing the data on the host
 computer.
 
 Since each IHEX line specifies an address, it is possible to write
-selectively to any part of the EEPROM – simply send only those lines of
+selectively to any part of the PROM – simply send only those lines of
 IHEX that you wish to write. Retrying the same line is also as simple as
 sending it again. The burner prevents you from exceeding the size of the
 selected chip type, i.e., addresses will _not_ wrap around at the end.
-It is even possible to write the same EEPROM in parts, as long as you
+It is even possible to write the same PROM in parts, as long as you
 avoid writing different data to already-written areas (writing the same
 data is harmless). The `bin2ihex` tool of my `kk_ihex` library can
 easily convert binary files to IHEX starting from an arbitrary address.
@@ -197,7 +262,7 @@ easily convert binary files to IHEX starting from an arbitrary address.
 Write mode may be exited by sending either the IHEX end of file line or a
 single exclamation mark `!`.
 
-Note that writing the EEPROM may be slower than the speed of the serial
+Note that writing the PROM may be slower than the speed of the serial
 connection, and the microcontroller's UART receive buffer is very limited.
 This means that the sender (you or your terminal) must throttle the speed
 at which data is sent. Software flow control (XON/XOFF) may be used for
@@ -225,7 +290,7 @@ command `E` to erase it before burning (if needed).
 
 The usage is simply:
 
-    ./terminal.rb /dev/ttyUSB0 57600
+    ./terminal.rb /dev/ttyUSB0 19200
 
 The two arguments specify the serial device connected to the burner and
 its baud rate, respectively.

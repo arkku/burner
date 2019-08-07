@@ -23,11 +23,12 @@ class Burner
   attr_reader :serial
   attr_reader :xon
 
-  def initialize(serial_device: '/dev/ttyUSB0', baud: 57600)
+  def initialize(serial_device: '/dev/ttyUSB0', baud: 19200)
     @serial = SerialPort.new(serial_device, baud, 8, 1, SerialPort::NONE)
     @xon = true
     @serial.autoclose = true
     @serial.flow_control = SerialPort::NONE # We will handle XON/XOFF manually
+    @serial.dtr = 1
     @ihex_destination = nil
     @ihex_source = nil
     @mutex = Mutex.new
@@ -38,6 +39,7 @@ class Burner
     loop do
       r = @serial.read(1)
       break if r.nil?
+      r = r.force_encoding("ASCII-8BIT")
       case r
       when "\n"
         break
@@ -51,9 +53,13 @@ class Burner
         break if result.empty?
       when "\t"
         result << ' '
-      when /[\u0000-\u0019]/
-        next
       else
+        value = r.ord
+        if (0x00...0x19).include? value
+          next
+        elsif (0xFC..0xFF).include? value
+          next
+        end
         result << r
       end
     end
@@ -65,7 +71,7 @@ class Burner
             log "! Resend: #{result}"
             @serial.write("\r\n")
             send(@previous_ihex)
-            xoff # Prevent another new line from being sent until next XON
+            @xon = false
           else
             @ihex_source.close
             @ihex_source = nil
@@ -166,7 +172,11 @@ class Burner
   def send(msg, logging: true)
     msg = "#{msg.to_s}\r\n"
     log "<< #{msg.inspect}" if logging
-    @serial.write(msg)
+    while chunk = msg.slice!(0...256)
+      break if chunk.empty?
+      @serial.write(chunk)
+      sleep(0.01) unless msg.empty?
+    end
   end
 
   def send_sync(msg)
@@ -183,7 +193,7 @@ end
 port = ARGV.first.to_s
 port = '/dev/ttyUSB0' if port.empty?
 baud = ARGV.last.to_i
-baud = 57600 if baud <= 0
+baud = 19200 if baud <= 0
 
 burner = Burner.new(serial_device: port, baud: baud)
 

@@ -405,11 +405,6 @@ uart_getlong (int_fast8_t base, int_fast8_t *success) {
 
 volatile uint8_t uart_last_rx_error = 0;
 
-/// The serial port UART device.
-static FILE uart_fdev = FDEV_SETUP_STREAM((uart_putc), (uart_getc_wait), _FDEV_SETUP_RW);
-
-FILE *uart = &uart_fdev;
-
 #ifdef USART_RX_vect
 ISR(USART_RX_vect)
 #else
@@ -462,3 +457,19 @@ void
 uart_disable (void) {
     UCSR0B = 0;
 }
+
+static int
+getc_uart(FILE *file) {
+    return uart_getc_wait();
+}
+
+static int
+putc_uart(char c, FILE *file) {
+    uart_putc(c);
+    return 0;
+}
+
+/// The serial port UART device.
+static FILE uart_fdev = FDEV_SETUP_STREAM((putc_uart), (getc_uart), _FDEV_SETUP_RW);
+
+FILE *uart = &uart_fdev;

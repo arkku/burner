@@ -7,11 +7,11 @@
 # Only tested with ATmega328P.
 
 MCU ?= atmega328p
-F_CPU ?= 14318318UL
-BAUD ?= 57600UL
+F_CPU ?= 16000000UL
+BAUD ?= 19200UL
 
 LFUSE ?= FF
-HFUSE ?= DF
+HFUSE ?= D7
 EFUSE ?= FD
 
 #### BURNER ###################################################################
@@ -34,7 +34,7 @@ ARFLAGS=rcs
 OBJCOPY=avr-objcopy
 AVRDUDE=avrdude
 
-IHEX_FLAGS=-DIHEX_DISABLE_SEGMENTS=1 -DIHEX_MAX_OUTPUT_LINE_LENGTH=32 -DIHEX_LINE_MAX_LENGTH=64 -DIHEX_EXTERNAL_WRITE_BUFFER=1 -Iihex
+IHEX_FLAGS=-DIHEX_DISABLE_SEGMENTS=1 -DIHEX_MAX_OUTPUT_LINE_LENGTH=64 -DIHEX_LINE_MAX_LENGTH=64 -DIHEX_EXTERNAL_WRITE_BUFFER=1 -Iihex
 UART_FLAGS=-DKK_UART_CONVERT_CRLF_IN_TO_LF=1 -DKK_UART_CONVERT_LF_OUT_TO_CRLF=1 -DKK_UART_RECEIVE_BUFFER_SIZE=256
 
 AVR_FLAGS=-mmcu=$(MCU) -DF_CPU=$(F_CPU) -DBAUD=$(BAUD) $(IHEX_FLAGS) $(UART_FLAGS)
@@ -43,6 +43,7 @@ AVR_FLAGS=-mmcu=$(MCU) -DF_CPU=$(F_CPU) -DBAUD=$(BAUD) $(IHEX_FLAGS) $(UART_FLAG
 HEX=burner.hex
 BIN=burner.elf
 OBJS=burner.o kk_ihex_read.o kk_ihex_write.o kk_uart.o
+BOOTLOADER=optiboot_atmega328.hex
 
 all: $(HEX)
 
@@ -69,8 +70,20 @@ $(BIN): $(OBJS)
 burn: $(HEX)
 	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b $(BPS) ,)-p $(MCU) -U flash:w:$< -v
 
+upload: $(HEX)
+	$(AVRDUDE) -c arduino $(if $(PORT),-P $(PORT),-P /dev/ttyUSB0) $(if $(BPS),-b $(BPS),-b $(subst L,,$(subst U,,$(BAUD)))) -p $(MCU) -U flash:w:$< -v
+
 fuses:
-	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b (BPS) ,)-p $(MCU) -U lfuse:w:0x$(LFUSE):m -U hfuse:w:0x$(HFUSE):m -U efuse:w:0x$(EFUSE):m
+	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b (BPS) ,)-p $(MCU) -U efuse:w:0x$(EFUSE):m -U hfuse:w:0x$(HFUSE):m -U lfuse:w:0x$(LFUSE):m
+
+bootloader: $(BOOTLOADER)
+	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b $(BPS) ,)-p $(MCU) -e -U flash:w:$< -v
+
+unlock:
+	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b $(BPS) ,)-p $(MCU) -U lock:w:0x3F:m -v
+
+lock:
+	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b $(BPS) ,)-p $(MCU) -U lock:w:0x0F:m -v
 
 clean:
 	rm -f $(OBJS)
@@ -78,4 +91,4 @@ clean:
 distclean: | clean
 	rm -f $(HEX) $(BIN)
 
-.PHONY: all clean distclean burn fuses
+.PHONY: all clean distclean burn fuses upload lock unlock bootloader
