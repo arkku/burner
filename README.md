@@ -35,16 +35,20 @@ work, i.e., these are untested but extremely likely to be compatible:
 * 27C256
 * 27C128
 * 27C64
+* W27E512
+* W27E257
 
 _Reading_ (but not writing) has also been tested on a number of vintage
 28-pin ROMs from old computers and their peripherals.
 
-Note that the 29C family of EEPROMs requires writing entires 64-byte pages
-at once, but writing takes place after each complete Intel HEX line has been
-transmitted, and IHEX typically has 32 bytes per line. This means that
-every page has to be written twice, since the remaining data is read from the
-EEPROM in order to preserve it. This can be avoided by converting the binary
-to IHEX using 64 bytes per line, e.g., as follows with `bin2ihex`:
+Note that the 29C family of EEPROMs requires writing whole 64-byte pages
+at a time, whereas only a single complete Intel HEX input line is buffered
+by the programmer, and is flashed immediately upon being received. Normally
+IHEX lines contain 32 bytes of data (when decoded), which means that every
+64-byte page will be written twice (since it is split across two IHEX lines).
+This is not harmful as such, but halves the write speed to these devices and
+uses up twice the write cycles necessary. This can be avoided by encoding 64
+bytes per IHEX line, e.g., as follows with `bin2ihex`:
 
     ihex/bin2ihex -b 64 <rom.bin >rom.hex
 
