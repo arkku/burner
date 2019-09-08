@@ -23,6 +23,8 @@ The following EPROMs have been tested to be writeable with this device:
 
 * 27SF512
 * W27C512
+* W27E512
+* W27E257
 * AT28C256
 * AT29C256
 * M27C256 (UV-erasable)
@@ -35,8 +37,6 @@ work, i.e., these are untested but extremely likely to be compatible:
 * 27C256
 * 27C128
 * 27C64
-* W27E512
-* W27E257
 
 _Reading_ (but not writing) has also been tested on a number of vintage
 28-pin ROMs from old computers and their peripherals.
