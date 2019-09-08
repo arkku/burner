@@ -85,10 +85,13 @@ unlock:
 lock:
 	$(AVRDUDE) -c $(BURNER) $(if $(PORT),-P $(PORT) ,)$(if $(BPS),-b $(BPS) ,)-p $(MCU) -U lock:w:0x0F:m -v
 
+ihex:
+	cd ihex && $(MAKE)
+
 clean:
 	rm -f $(OBJS)
 
 distclean: | clean
 	rm -f $(HEX) $(BIN)
 
-.PHONY: all clean distclean burn fuses upload lock unlock bootloader
+.PHONY: all ihex clean distclean burn fuses upload lock unlock bootloader

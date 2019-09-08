@@ -41,22 +41,6 @@ work, i.e., these are untested but extremely likely to be compatible:
 _Reading_ (but not writing) has also been tested on a number of vintage
 28-pin ROMs from old computers and their peripherals.
 
-Note that the 29C family of EEPROMs requires writing whole 64-byte pages
-at a time, whereas only a single complete Intel HEX input line is buffered
-by the programmer, and is flashed immediately upon being received. Normally
-IHEX lines contain 32 bytes of data (when decoded), which means that every
-64-byte page will be written twice (since it is split across two IHEX lines).
-This is not harmful as such, but halves the write speed to these devices and
-uses up twice the write cycles necessary. This can be avoided by encoding 64
-bytes per IHEX line, e.g., as follows with `bin2ihex`:
-
-    ihex/bin2ihex -b 64 <rom.bin >rom.hex
-
-Note that the executable `bin2ihex` is not compiled by the EEPROM programmer's
-`Makefile` (since it runs on the host computer), but you can simply type `make`
-inside the `ihex` submodule's directory to build the `bin2ihex` and `ihex2bin`
-utilities.
-
 ## Hardware
 
 There is now a [schematic](burner_schematic.pdf) available, but the
@@ -130,9 +114,9 @@ For example, a 16 MHz crystal at 19200 baud would be:
 
     make F_CPU=16000000UL BAUD=19200
 
-This (16 MHz, 19200 baud) is also the default since it has proven the
-highest reliable speed with that crystal and cheap USB to serial
-adapters. Using a 14.746 MHz crystal allows higher baud rates.
+This (16 MHz, 19200 baud) is also the default since it has proven
+to be the highest reliable speed with that crystal and a cheap USB
+to serial cable. Using a 14.746 MHz crystal allows higher baud rates.
 
 In addition to the mentioned components, you need some kind of serial
 port chip or cable that uses TTL levels. Personally I used an FTDI chip
@@ -162,13 +146,34 @@ Otherwise everything can be built to `burner.hex` by just running
 `make`. See the `Makefile` for configurable options (such as the crystal
 frequency, `F_CPU`, and UART baud rate, `BAUD`). If you use the AVR
 Dragon in ISP mode, the microcontroller can be programmed with just
-`make burn` and its fuses set with `make fuses`. You may be able to
-upload to an Arduino-compatible bootloader with something like:
+`make burn` and its fuses set with `make fuses`, e.g.:
 
-    make F_CPU=16000000 BAUD=115200
-    make upload BURNER=arduino PORT=/dev/ttyUSB0 BPS=115200
+    make fuses
+    make burn
 
-However, anything other than AVR Dragon is untested.
+You can use the settings `BURNER`, `PORT` and `BPS` to configure the
+options passed to `avrdude`, e.g.:
+
+    make burn BURNER=stk500v2 PORT=/dev/ttyS0 BPS=38400
+
+If your AVR device has an Arduino-compatible bootloader (such as optiboot),
+you can use the `make upload` target to upload, e.g.:
+
+    make F_CPU=16000000 BAUD=38400
+    make upload PORT=/dev/ttyUSB0 BPS=115200
+
+There is also a `make bootlader` target that uploads a bootloader
+(using some other programmer, such as the AVR Dragon), but you must
+build and prepare the bootloader yourself as one isn't included.
+An example for setting Arduino-like fuses and optiboot bootloader
+using the AVR Dragon's parallel programming mode would be:
+
+    make fuses LFUSE=FF HFUSE=DE EFUSE=FD BURNER=dragon_pp
+    make bootloader BOOTLOADER=optiboot.hex BURNER=dragon_pp
+
+After this the microcontroller can be installed in the EEPROM burner
+and programmed with `make upload` using the UART (see the schematics
+for an FTDI-compatible pinout).
 
 ## Usage
 
@@ -239,40 +244,57 @@ resume the output. Sending a single exclamation mark `!` aborts the read.
 ## Burning
 
 Before you can write ("burn") a PROM, it must first be erased. Erasing
-compatible EEPROM can bo done with the `E` command, but the chip type
+compatible EEPROM can be done with the `E` command, but the chip type
 must first be correctly selected and the appropriate erase voltage must
-be present as the `Vpp` (some chips need 14V to erase while using 12V
-for identifying and programming, check the datasheet). New PROMs may
+be present on the `Vpp` input (some chips need 14V to erase while using
+12V for identifying and programming; check the datasheet). New PROMs may
 already be blank, which can be tested by issuing the `V` (verify)
-command. A blank EEPROM reads as all bits set (`$FF`).
+command. A blank PROM reads as all bits set (`$FF`).
 
 The write mode is entered by issuing the `W` command. In write mode, any
-valid Intel HEX line received is immediately written to the EEPROM and
+valid Intel HEX line received is immediately written to the PROM and
 verified by reading it back. The microcontroller does not have enough RAM
 to buffer previous lines, so the final verification must be done by
-reading back the entire EEPROM and comparing the data on the host
-computer.
+reading back the entire PROM and comparing the data on the host computer.
+
+Note that the 29C family of EEPROMs requires writing whole 64-byte pages
+at a time, whereas the "standard" IHEX lines contain only 32 bytes of
+data (when decoded), which means that every page has to be written twice
+(once at the end of each 32-byte IHEX line). This is not particularly
+harmful, but it uses twice as many write cycles and takes more than twice
+as long as necessary. A simple remedy is to encode the input binary into
+IHEX with 64 bytes of data per line. The IHEX library comes with a suitable
+utility, `bin2ihex`, that can be used as follows:
+
+    ihex/bin2ihex -b 64 <rom.bin >rom.hex
+
+Note that the executable `bin2ihex` needs to be built by running `make`
+inside the `ihex` submodule's directory, or `make ihex` which does
+exactly that.
 
 Since each IHEX line specifies an address, it is possible to write
-selectively to any part of the PROM – simply send only those lines of
+selectively to any part of the PROM: simply send only those lines of
 IHEX that you wish to write. Retrying the same line is also as simple as
 sending it again. The burner prevents you from exceeding the size of the
-selected chip type, i.e., addresses will _not_ wrap around at the end.
-It is even possible to write the same PROM in parts, as long as you
-avoid writing different data to already-written areas (writing the same
-data is harmless). The `bin2ihex` tool of my `kk_ihex` library can
-easily convert binary files to IHEX starting from an arbitrary address.
+selected chip type, i.e., addresses will _not_ wrap around at the end
+but rather produce an error. It is even possible to write the same PROM
+in parts, as long as you avoid writing different data to already-written
+areas (writing the same data again is mostly harmless). The `bin2ihex`
+tool of the IHEX library can convert binary files into IHEX starting
+from an arbitrary address (argument `-a 0xAAAA` where `AAAA` is the
+desired address of the first byte).
 
-Write mode may be exited by sending either the IHEX end of file line or a
-single exclamation mark `!`.
+Write mode may be exited by sending either the IHEX end of file record
+or a single exclamation mark `!`.
 
 Note that writing the PROM may be slower than the speed of the serial
 connection, and the microcontroller's UART receive buffer is very limited.
 This means that the sender (you or your terminal) must throttle the speed
 at which data is sent. Software flow control (XON/XOFF) may be used for
-this, or you may simply send one line, wait for the response, and send
-another. The latter approach also has the benefit that you can observe
-errors as they happen, and is preferable.
+this (such as when copypasting the IHEX into the terminal), or you may use
+a program that waits for response to each line before sending the next one
+(e.g., the included `terminal.rb` does this, and also automatically retries
+lines on error).
 
 ### terminal.rb
 
@@ -281,7 +303,9 @@ systems is provided. It passes input and output directly to the burner,
 but supports two additional commands to make reading and writing simpler:
 
 * `write filename.hex` – Enters **write** mode and uploads the contents
-  of the Intel HEX file given (`filename.hex`) one line at a time.
+  of the Intel HEX file given (`filename.hex`) one line at a time,
+  automatically retrying on error. (In case of excessive errors, you
+  may need to manually exit write mode by sending an exclamation mark `!`.)
 * `read filename.hex` or `read filename.hex $start $end` – Enters
   **read** mode and saves the received Intel HEX data into the file
   given (`filename.hex`), which will be overwritten. Optionally the
