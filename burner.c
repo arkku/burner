@@ -405,6 +405,7 @@ select_chip_by_id (const uint16_t identifier) {
     case 0x208D:
     case 0xD510:
     case 0x9704:
+    case 0xDA02:
         return select_chip_by_name("27C256");
     case 0x2983:
     case 0x4953:
